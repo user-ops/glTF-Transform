@@ -16,6 +16,7 @@
     ao                                   ✨ Bake per-vertex ambient occlusion                   
     unlit                                ✨ Convert materials to an unlit model                 
     dedup                                ⏩ Deduplicate accessors and textures                  
+    quantize                             ⏩ Quantize mesh vertex attributes                     
     gzip                                 ⏩ Compress the model with gzip                        
     etc1s                                ⏩ Compress textures with KTX + Basis ETC1S            
     uastc                                ⏩ Compress textures with KTX + Basis UASTC            

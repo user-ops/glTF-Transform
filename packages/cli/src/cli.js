@@ -8,7 +8,7 @@ const { program } = require('@caporal/core');
 const { version } = require('../package.json');
 const { Document, NodeIO } = require('@gltf-transform/core');
 const { MaterialsUnlit, Unlit, KHRONOS_EXTENSIONS } = require('@gltf-transform/extensions');
-const { ao, dedup, partition } = require('@gltf-transform/lib');
+const { ao, dedup, partition, quantize } = require('@gltf-transform/lib');
 const { inspect } = require('./inspect');
 const { validate } = require('./validate');
 const { formatBytes } = require('./util');
@@ -174,6 +174,39 @@ program
 		const doc = io.read(args.input)
 			.setLogger(logger)
 			.transform(dedup(options));
+		io.write(args.output, doc);
+	});
+
+// QUANTIZE
+program
+	.command('quantize', '⏩ Quantize mesh vertex attributes')
+	.help(`
+Quantize mesh vertex attributes. Quantization is a simple type of
+compression taking vertex attributes and storing them as 16-bit or 8-bit
+integers, represented on a scale between the minimum and maximum values.
+This means that the attribute data requires less space, but has less precision.
+
+Most vertex attribute types can be quantized from 8–16 bits. Precision of some
+attribute types can be configured with options; the rest are inferred
+automatically from the model.`.trim())
+	.argument('<input>', 'Path to read glTF 2.0 (.glb, .gltf) input')
+	.argument('<output>', 'Path to write output')
+	.option('-p, --position <bits>', 'Precision for POSITION attributes.', {
+		validator: [16, 8],
+		default: 16,
+	})
+	.option('-n, --normal <bits>', 'Precision for NORMAL and TANGENT attributes.', {
+		validator: [16, 8],
+		default: 8,
+	})
+	.option('-t, --texcoord <bits>', 'Precision for TEXCOORD_* attributes.', {
+		validator: [16, 8],
+		default: 16,
+	})
+	.action(({args, options, logger}) => {
+		const doc = io.read(args.input)
+			.setLogger(logger)
+			.transform(quantize(options));
 		io.write(args.output, doc);
 	});
 

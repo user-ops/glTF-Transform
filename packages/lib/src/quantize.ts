@@ -32,9 +32,13 @@ const quantize = (options: QuantizeOptions): Transform => {
 			for (const mesh of doc.getRoot().listMeshes()) {
 				const min = [Infinity, Infinity, Infinity] as vec3;
 				const max = [-Infinity, -Infinity, -Infinity] as vec3;
-				flatBounds<vec3>(min, max, mesh.listPrimitives().map((prim) => prim.getAttribute('POSITION')));
+				const positions = mesh.listPrimitives()
+					.map((prim) => prim.getAttribute('POSITION'));
+				flatBounds<vec3>(min, max, positions);
 				const scale = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
-				const isSkinnedMesh = !!mesh.listPrimitives().find((prim) => prim.getAttribute('JOINTS_0'));
+				const isSkinnedMesh = !!mesh.listPrimitives()
+					.find((prim) => prim.getAttribute('JOINTS_0'));
+				// eslint-disable-next-line max-len
 				logger.debug(`${NAME}: Quantizing "${mesh.getName()}" ... scale=${scale.toFixed(5)}`);
 
 				for (const primitive of mesh.listPrimitives()) {
@@ -42,15 +46,14 @@ const quantize = (options: QuantizeOptions): Transform => {
 						const attribute = primitive.getAttribute(semantic);
 						if (semantic === 'POSITION') {
 							if (isSkinnedMesh) {
-								// TODO(feat): Apply transforms to IBMs and support skinned mesh quantization.
-								logger.warn(`${NAME}: Skipping skinned mesh; quantize transform does not yet support KHR_texture_transform.`);
+								// TODO(feat): Apply transforms to IBMs for skinned mesh.
+								logger.warn(`${NAME}: Skipping skinned mesh, not yet supported.`);
 								continue;
 							}
 							const bits = options.position;
-							const vertexOffset = min;
 							const vertexScale = scale ? 1 / scale : 0;
 							logger.debug(`max before: ${attribute.getMaxNormalized([]).map(n => n.toFixed(3))}`);
-							quantizeAttribute(attribute, tmpAttribute, bits === 8 ? Int8Array : Int16Array, bits, true, vertexOffset, vertexScale);
+							quantizeAttribute(attribute, tmpAttribute, bits === 8 ? Uint8Array : Uint16Array, bits, false, min, vertexScale);
 							logger.debug(`max after: ${attribute.getMaxNormalized([]).map(n => n.toFixed(3))}`);
 						} else if (semantic === 'NORMAL') {
 							// TODO(feat): Implement.
@@ -84,7 +87,7 @@ const quantize = (options: QuantizeOptions): Transform => {
 				}
 
 				if (!isSkinnedMesh && mesh.listPrimitives().length) {
-					transformMeshParents(doc, mesh, min, scale);
+					transformMeshParents(doc, mesh, min, scale / ((1 << options.position) - 1));
 				}
 			}
 
@@ -134,7 +137,11 @@ function transformMeshParents(doc: Document, mesh: Mesh, offset: vec3, scale: nu
 				targetNode = parent;
 			}
 
-			targetNode.setScale([scale, scale, scale]);
+			const t = targetNode.getTranslation();
+			const s = targetNode.getScale();
+			targetNode
+				.setTranslation([t[0] + offset[0], t[1] + offset[1], t[2] + offset[2]])
+				.setScale([s[0] * scale, s[1] * scale, s[2] * scale]);
 		}
 	}
 }
@@ -154,33 +161,45 @@ function quantizeAttribute(
 
 	const prevArray = attribute.getArray();
 	const nextArray = new ctor(prevArray.length);
-	const tmpElement = [];
 
-	console.log(`norm=${normalized}, offset=${offset}, scale=${scale}`);
+	// console.log(`norm=${normalized}, offset=${offset}, scale=${scale}`);
 
 	tmpAttribute
 		.setType(attribute.getType())
 		.setArray(nextArray)
 		.setNormalized(normalized);
 
+	const pos = [];
 	for (let i = 0; i < attribute.getCount(); i++) {
-		attribute.getElement(i, tmpElement);
-		// console.log(tmpElement + ' * ' + scale);
+		attribute.getElement(i, pos);
+		// console.log('(' + pos + ' - ' + offset +  ') * ' + scale);
 		if (offset !== null && scale !== null) {
-			// pos[0] = (pos[0] - offset[0]) * scale;
-			// pos[1] = (pos[1] - offset[1]) * scale;
-			// pos[2] = (pos[2] - offset[2]) * scale;
-			tmpElement[0] *= scale;
-			tmpElement[1] *= scale;
-			tmpElement[2] *= scale;
+			pos[0] = floatToInt((pos[0] - offset[0]) * scale, tmpAttribute.getComponentType());
+			pos[1] = floatToInt((pos[1] - offset[1]) * scale, tmpAttribute.getComponentType());
+			pos[2] = floatToInt((pos[2] - offset[2]) * scale, tmpAttribute.getComponentType());
 		}
-		// console.log(tmpElement);
-		tmpAttribute.setElement(i, tmpElement);
+		tmpAttribute.setElement(i, pos);
 	}
 
 	attribute
 		.setArray(nextArray)
 		.setNormalized(normalized);
+}
+
+// TODO(cleanup): Import function from /core.
+function floatToInt(f: number, componentType: GLTF.AccessorComponentType): number {
+	switch (componentType) {
+		case GLTF.AccessorComponentType.FLOAT:
+			return f;
+		case GLTF.AccessorComponentType.UNSIGNED_SHORT:
+			return Math.round(f * 65535.0);
+		case GLTF.AccessorComponentType.UNSIGNED_BYTE:
+			return Math.round(f * 255.0);
+		case GLTF.AccessorComponentType.SHORT:
+			return Math.round(f * 32767.0);
+		case GLTF.AccessorComponentType.BYTE:
+			return Math.round(f * 127.0);
+	}
 }
 
 export { quantize };
